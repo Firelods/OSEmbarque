@@ -23,9 +23,10 @@ uint16_t us_measure_cm(void) {
     PORTB &= ~_BV(TRIGGER);
 
     // Attente FRONT MONTANT (Timeout ~few ms)
-    uint32_t timeout = 50000; 
+    // Increased timeout to ensure we don't miss the start
+    uint32_t timeout = 500000; 
     while (!(PINB & _BV(ECHO))) {
-        if (--timeout == 0) return 0; 
+        if (--timeout == 0) return 0xFFFF; // Error: Echo never went HIGH
     }
 
     TCNT1 = 0;
@@ -33,7 +34,7 @@ uint16_t us_measure_cm(void) {
     // Attente FRONT DESCENDANT (Timeout ~30ms for max range)
     // Prescaler 8 @ 16MHz => 0.5us per tick. 60000 ticks = 30ms.
     while (PINB & _BV(ECHO)) {
-        if (TCNT1 > 60000) return 0;
+        if (TCNT1 > 60000) return 0xFFFE; // Error: Echo stayed HIGH too long
     }
     
     uint16_t ticks = TCNT1;

@@ -13,7 +13,8 @@
 //     UART DEBUG
 // -----------------------
 //
-
+#define TRIG_PIN  PB0
+#define ECHO_PIN  PB1
 void uart_init() {
     // 115200 bauds @ 16 MHz
     uint16_t ubrr = 8;
@@ -23,6 +24,22 @@ void uart_init() {
     UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);    // 8N1
 }
 
+float measure() 
+{
+    PORTD |= (1 << TRIG_PIN);
+    _delay_us(10);
+    PORTD &= ~(1 << TRIG_PIN);
+
+    TCNT1 = 0;  // Reset Timer1
+    TCCR1B = (1 << CS11);  // Start Timer1 with prescaler 8
+
+    while (!(PIND & (1 << ECHO_PIN)));  // Wait for Echo HIGH
+    TCNT1 = 0;  // Reset Timer1 again
+    while (PIND & (1 << ECHO_PIN));  // Wait for Echo LOW
+
+    TCCR1B = 0;  // Stop Timer1
+    return ((float)TCNT1 / 2.0) * 0.0343 / 2.0;;
+}
 void uart_send(char c) {
     while (!(UCSR0A & (1 << UDRE0)));
     UDR0 = c;
@@ -59,8 +76,10 @@ void test_button() {
 
 void test_ultrasonic() {
     uart_print("[TEST] Ultrasonic measure... ");
-    uint16_t d = us_measure_cm();
-    uart_print_uint(d);
+    // uint16_t d = us_measure_cm();
+    float cm = measure();
+
+    uart_print_uint((uint16_t)cm);
     uart_print(" cm\r\n");
     _delay_ms(300);
 }
@@ -95,9 +114,10 @@ int main(void)
     led_init();
     button_init();
     // motor_init();
+    DDRD |= (1 << TRIG_PIN);  // Trig as output
+    DDRD &= ~(1 << ECHO_PIN); // Echo as input
     us_init();
     uart_init();
-
     sei();  // enable interrupts for button
 
     uart_print("\r\n=== SMART SENSOR - DRIVER SELFTEST ===\r\n");

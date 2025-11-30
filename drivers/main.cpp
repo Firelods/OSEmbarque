@@ -1,150 +1,86 @@
 #include <avr/io.h>
-#include <avr/interrupt.h>
 #include <util/delay.h>
-#include <stdlib.h>
+#include <avr/interrupt.h>
 
-#include "led.h"
-#include "button.h"
-#include "ultrasonic.h"
-#include "motor.h"
+#include "ir.h"
+#include "servo.h"
+#include "lcd_grove.h"
 
-//
-// -----------------------
-//     UART DEBUG
-// -----------------------
-//
-#define TRIG_PIN  PB0
-#define ECHO_PIN  PB1
-void uart_init() {
-    // 115200 bauds @ 16 MHz
-    uint16_t ubrr = 8;
-    UBRR0H = (ubrr >> 8);
-    UBRR0 = ubrr;
-    UCSR0B = (1 << TXEN0);                     // enable TX
-    UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);    // 8N1
-}
+#define RED_LED   PD2
+#define GREEN_LED PD3
+#define WHITE_LED PD6
+#define LIGHT_PIN PC0    // A0 for light sensor
 
-float measure() 
+void leds_init(void)
 {
-    PORTD |= (1 << TRIG_PIN);
-    _delay_us(10);
-    PORTD &= ~(1 << TRIG_PIN);
-
-    TCNT1 = 0;  // Reset Timer1
-    TCCR1B = (1 << CS11);  // Start Timer1 with prescaler 8
-
-    while (!(PIND & (1 << ECHO_PIN)));  // Wait for Echo HIGH
-    TCNT1 = 0;  // Reset Timer1 again
-    while (PIND & (1 << ECHO_PIN));  // Wait for Echo LOW
-
-    TCCR1B = 0;  // Stop Timer1
-    return ((float)TCNT1 / 2.0) * 0.0343 / 2.0;;
-}
-void uart_send(char c) {
-    while (!(UCSR0A & (1 << UDRE0)));
-    UDR0 = c;
+    DDRD |= (1<<RED_LED) | (1<<GREEN_LED) | (1<<WHITE_LED);
+    DDRC &= ~(1<<LIGHT_PIN);   // A0 as input
 }
 
-void uart_print(const char* s) {
-    while (*s) uart_send(*s++);
+uint8_t is_dark(void)
+{
+    // simple digital threshold: LOW = dark (LDR + pull-up)
+    return !(PINC & (1<<LIGHT_PIN));
 }
-
-void uart_print_uint(uint16_t n) {
-    char buf[10];
-    itoa(n, buf, 10);
-    uart_print(buf);
-}
-
-//
-// -----------------------
-//     TEST FUNCTIONS
-// -----------------------
-//
-
-void test_led() {
-    uart_print("[TEST] LED toggle\r\n");
-    led_toggle();
-}
-
-void test_button() {
-    if (button_get_event()) {
-        uart_print("[TEST] Button pressed\r\n");
-        led_toggle();
-        _delay_ms(150);
-    }
-}
-
-void test_ultrasonic() {
-    uart_print("[TEST] Ultrasonic measure... ");
-    // uint16_t d = us_measure_cm();
-    float cm = measure();
-
-    uart_print_uint((uint16_t)cm);
-    uart_print(" cm\r\n");
-    _delay_ms(300);
-}
-
-void test_motor() {
-    uart_print("[TEST] Motor PWM speed sweep\r\n");
-
-    // Ramp-up
-    for (uint8_t i = 0; i < 255; i += 25) {
-        motor_set_speed(i);
-        uart_print("  Speed = "); uart_print_uint(i); uart_print("\r\n");
-        _delay_ms(150);
-    }
-
-    // Ramp-down
-    for (int i = 255; i >= 0; i -= 25) {
-        motor_set_speed(i);
-        uart_print("  Speed = "); uart_print_uint(i); uart_print("\r\n");
-        _delay_ms(150);
-    }
-}
-
-//
-// -----------------------
-//        MAIN
-// -----------------------
-//
 
 int main(void)
 {
-    // Initialize all drivers
-    led_init();
-    button_init();
-    // motor_init();
-    DDRD |= (1 << TRIG_PIN);  // Trig as output
-    DDRD &= ~(1 << ECHO_PIN); // Echo as input
-    us_init();
-    uart_init();
-    sei();  // enable interrupts for button
+    leds_init();
+    ir_init();
+    servo_init();
+    lcd_init();     // <-- new
 
-    uart_print("\r\n=== SMART SENSOR - DRIVER SELFTEST ===\r\n");
+    sei();
 
-    led_set(0);
-    // motor_set_speed(0);
+    // Initial LCD message
+    lcd_clear();
+    lcd_set_cursor(0, 0);
+    lcd_print("Parking Ready");
 
-    //
-    // Boucle de test infinie
-    //
+    uint8_t last_car_state = 255;   // force first update
+
     while (1)
     {
-        uart_print("\r\n>>> Running complete driver test cycle...\r\n");
+        // LIGHT SENSOR -> white LED
+        if (is_dark())
+            PORTD |= (1<<WHITE_LED);
+        else
+            PORTD &= ~(1<<WHITE_LED);
 
-        test_led();
-        _delay_ms(250);
+        // IR DETECTOR -> car present or not
+        uint8_t car = ir_detect();
 
-        test_button();  // non bloquant
+        if (car != last_car_state)
+        {
+            if (car) {
+                // spot occupied
+                PORTD |=  (1<<RED_LED);
+                PORTD &= ~(1<<GREEN_LED);
 
-        test_ultrasonic();
+                // barrier down
+                servo_set_angle(90);
 
-        // test_motor();
+                lcd_clear();
+                lcd_set_cursor(0,0);
+                lcd_print("Car detected");
+            }
+            else {
+                // spot free
+                PORTD |=  (1<<GREEN_LED);
+                PORTD &= ~(1<<RED_LED);
 
-        uart_print(">>> END TEST CYCLE\r\n");
-        uart_print("--------------------------\r\n");
+                // barrier up
+                servo_set_angle(0);
 
-        _delay_ms(1000);
+                lcd_clear();
+                lcd_set_cursor(0,0);
+                lcd_print("Free spot");
+            }
+
+            last_car_state = car;
+        }
+
+        _delay_ms(200);
     }
 
     return 0;

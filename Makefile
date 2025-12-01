@@ -8,7 +8,9 @@ INCLUDES+= -IFreeRTOS-Kernel/portable/GCC/ATMega328
 INCLUDES+= -Idrivers
 
 vpath %.cpp arduinoLibsAndCore/libraries/Wire/src
+vpath %.cpp drivers
 vpath %c arduinoLibsAndCore/libraries/Wire/src/utility
+vpath %c arduinoLibsAndCore/cores/arduino
 vpath %c FreeRTOS-Kernel/
 vpath %c FreeRTOS-Kernel/portable/MemMang
 vpath %c FreeRTOS-Kernel/portable/GCC/ATMega328/
@@ -39,7 +41,7 @@ all: $(BUILD_DIR)/$(PROGRAM).elf $(BUILD_DIR)/$(PROGRAM).hex
 #      LINK (NO LTO)
 # ------------------------
 $(BUILD_DIR)/$(PROGRAM).elf: Build/timers.o Build/tasks.o Build/queue.o Build/list.o Build/croutine.o \
-							Build/heap_1.o Build/port.o Build/Wire.o Build/twi.o \
+							Build/heap_1.o Build/port.o Build/Wire.o Build/twi.o Build/wiring_digital.o \
 Build/ir.o Build/servo.o Build/lcd_grove.o Build/soft_i2c.o Build/main.o
 
 	$(CPP) $(MMCU) -Wl,--gc-sections \

@@ -6,4 +6,4 @@ Build/main.o: main.cpp FreeRTOS-Kernel/include/FreeRTOS.h \
  FreeRTOS-Kernel/include/mpu_wrappers.h FreeRTOS-Kernel/include/task.h \
  FreeRTOS-Kernel/include/list.h FreeRTOS-Kernel/include/semphr.h \
  FreeRTOS-Kernel/include/queue.h FreeRTOS-Kernel/include/task.h \
- drivers/ir.h drivers/servo.h drivers/lcd_grove.h
+ drivers/ir.h drivers/servo.h drivers/lcd_grove.h drivers/soft_i2c.h

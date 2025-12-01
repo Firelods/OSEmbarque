@@ -8,6 +8,8 @@
 #include "ir.h"
 #include "servo.h"
 #include "lcd_grove.h"
+#include "soft_i2c.h"
+
 
 // ------------ PIN DEFINITIONS ------------
 #define RED_LED     PD2
@@ -118,6 +120,7 @@ static void vLCDTask(void *p)
 // ===================================================
 int main(void)
 {
+    soft_i2c_init(0x32);   // adresse I2C esclave
     leds_init();
     light_sensor_init();
     ir_init();

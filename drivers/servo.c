@@ -1,31 +1,49 @@
 #include "servo.h"
 #include <avr/io.h>
 
+/*
+ * Servo sur D6 (PD6, OC0A)
+ * Timer0 → Fast PWM, TOP = 0xFF, prescaler = 1024
+ * 
+ * Période PWM ≈ 16.384 ms (~61 Hz)
+ * Résolution ≈ 64 µs par tick.
+ */
+
 void servo_init(void)
 {
-    // OC1A = PB1 = Arduino D9
-    DDRB |= (1 << PB1);
+    // D6 = PD6 = OC0A en sortie
+    DDRD |= (1 << PD6);
 
-    // Fast PWM mode, TOP = ICR1
-    TCCR1A = (1 << COM1A1);                 // non-inverted PWM on OC1A
-    TCCR1B = (1 << WGM13) | (1 << WGM12);   // Fast PWM mode
-    TCCR1A |= (1 << WGM11);
+    // Fast PWM, TOP = 0xFF
+    // WGM01=1, WGM00=1, WGM02=0
+    TCCR0A = (1 << WGM01) | (1 << WGM00);
 
-    // 50 Hz: ICR1 = 20ms / 0.5us = 40000
-    ICR1 = 40000;
+    // Non-inverted PWM sur OC0A : Clear OC0A on compare match
+    TCCR0A |= (1 << COM0A1);
 
-    // Prescaler 8
-    TCCR1B |= (1 << CS11);
+    // Prescaler = 1024 → CS02=1, CS01=0, CS00=1
+    TCCR0B = (1 << CS02) | (1 << CS00);
 
-    // Default angle = UP
+    // Position de repos : barrière ouverte (0°)
     servo_set_angle(0);
 }
 
 void servo_set_angle(uint8_t angle)
 {
-    // Map angle (0–180) to pulse width (1ms–2ms)
-    // 1ms = 2000 ticks, 2ms = 4000 ticks
-    uint16_t pulse = 2000 + (angle * 2000UL) / 180;
+    // Clamp au cas où
+    if (angle > 180) angle = 180;
 
-    OCR1A = pulse;
+    /*
+     * On prend :
+     *  - ~1 ms → 1 000 / 64 ≈ 16 ticks
+     *  - ~2 ms → 2 000 / 64 ≈ 31 ticks
+     * On mappe 0–180° → 16–31
+     */
+
+    const uint8_t pulse_min = 16;   // ~1 ms
+    const uint8_t pulse_max = 31;   // ~2 ms
+
+    uint8_t ocr = pulse_min + (uint32_t)(pulse_max - pulse_min) * angle / 180;
+
+    OCR0A = ocr;
 }

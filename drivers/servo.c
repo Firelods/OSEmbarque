@@ -28,22 +28,22 @@ void servo_init(void)
     servo_set_angle(0);
 }
 
-void servo_set_angle(uint8_t angle)
+void servo_set_angle(uint16_t angle)
 {
     // Clamp au cas où
-    if (angle > 180) angle = 180;
+    if (angle > 1080) angle = 1080;
 
     /*
      * On prend :
-     *  - ~1 ms → 1 000 / 64 ≈ 16 ticks
-     *  - ~2 ms → 2 000 / 64 ≈ 31 ticks
-     * On mappe 0–180° → 16–31
+     *  - ~0.5 ms → 500 / 64 ≈ 8 ticks
+     *  - ~2.5 ms → 2500 / 64 ≈ 39 ticks
+     * On mappe 0–1080° → 8–39
      */
 
-    const uint8_t pulse_min = 16;   // ~1 ms
-    const uint8_t pulse_max = 31;   // ~2 ms
+    const uint8_t pulse_min = 8;    // ~0.5 ms
+    const uint8_t pulse_max = 39;   // ~2.5 ms
 
-    uint8_t ocr = pulse_min + (uint32_t)(pulse_max - pulse_min) * angle / 180;
+    uint8_t ocr = pulse_min + (uint32_t)(pulse_max - pulse_min) * angle / 1080;
 
     OCR0A = ocr;
 }

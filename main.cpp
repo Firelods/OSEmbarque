@@ -26,12 +26,16 @@
 #define REG_SYSTEM_STATUS   5
 #define REG_SERVO_COMMAND   6  // Commande manuelle du servo depuis le master
 
+#define BARRIER_OPEN_DURATION 100 // 100 * 50ms = 5000ms = 5 seconds
+
+
 static SemaphoreHandle_t lcdSem;
 
 volatile uint8_t car_state = 0;
 volatile uint8_t prev_car_state = 255;
-volatile uint8_t current_servo_angle = 0;
-volatile uint8_t current_release_counter = 0;
+volatile uint16_t current_servo_angle = 0;
+volatile uint8_t current_release_counter = 0; // Shared with LED task
+volatile uint8_t is_dark_state = 0;           // Shared with LED task
 
 // ------------ INIT ------------
 static void leds_init(void)
@@ -54,7 +58,9 @@ static uint8_t is_dark(void)
 //                      TASKS
 // ===================================================
 
-static void vAcqTask(void *p)
+// Task 1: Infrared Sensor Task
+// Reads the IR sensor and updates the car presence state.
+static void vIrTask(void *p)
 {
     for(;;)
     {
@@ -73,103 +79,131 @@ static void vAcqTask(void *p)
     }
 }
 
-static void vControlTask(void *p)
+// Task 2: Light Sensor Task
+// Reads the light sensor and updates the dark/light state.
+static void vLightSensorTask(void *p)
+{
+    for(;;)
+    {
+        is_dark_state = is_dark();
+        
+        // Update I2C register
+        soft_i2c_set_register(REG_LIGHT_STATE, is_dark_state);
+
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+// Task 3: Servo Motor Task
+// Manages the Parking Logic (release counter) and Servo control (Auto/Manual).
+static void vServoTask(void *p)
 {
     uint8_t release_counter = 0;
-    bool manual_servo_mode = false;  // Mode manuel du servo activé
+    bool manual_servo_mode = false;
 
     for(;;)
     {
-        uint8_t dark = is_dark();
-        uint8_t led_state = 0;
-        
-        // Vérifier s'il y a une commande servo du master
+        // 1. Check for Manual Command via I2C
         uint8_t servo_command = soft_i2c_get_register(REG_SERVO_COMMAND);
         
-        // 255 = réactiver le mode automatique
+        // Command 255: Reactivate Automatic Mode
         if (servo_command == 255)
         {
             manual_servo_mode = false;
             soft_i2c_set_register(REG_SERVO_COMMAND, 0xFF);
         }
-        // Commande d'angle valide (0-180)
+        // Valid Angle Command (0-180): Activate Manual Mode
         else if (servo_command != 0xFF && servo_command <= 180)
         {
             servo_set_angle(servo_command);
             current_servo_angle = servo_command;
-            manual_servo_mode = true;  // Activer le mode manuel
+            manual_servo_mode = true;
             soft_i2c_set_register(REG_SERVO_COMMAND, 0xFF);
         }
 
-        // Gestion de la LED blanche (automatique selon luminosité)
-        if (dark)
+        // 2. Manage Release Counter (System State Logic)
+        // Counter runs regardless of manual mode to keep LED state consistent
+        if (car_state)
+        {
+            release_counter = 0;
+        }
+        else
+        {
+            if (release_counter < BARRIER_OPEN_DURATION)
+                release_counter++;
+        }
+        current_release_counter = release_counter; // Update global for LED task
+
+        // 3. Automatic Servo Control
+        if (!manual_servo_mode)
+        {
+            if (car_state)
+            {
+                // Car detected -> Open barrier
+                servo_set_angle(1080);
+                current_servo_angle = 1080;
+            }
+            else
+            {
+                // Car gone -> Wait for counter -> Close barrier
+                if (release_counter >= BARRIER_OPEN_DURATION)
+                {
+                    servo_set_angle(0);
+                    current_servo_angle = 0;
+                }
+            }
+        }
+
+        // Update I2C registers
+        soft_i2c_set_register(REG_SERVO_ANGLE, (uint8_t)current_servo_angle);
+        soft_i2c_set_register(REG_RELEASE_COUNTER, release_counter);
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+// Task 4: LED Task
+// Controls all LEDs based on shared state (Light, Car, Counter).
+static void vLedTask(void *p)
+{
+    for(;;)
+    {
+        uint8_t led_state = 0;
+
+        // White LED Control (Ambient Light)
+        if (is_dark_state)
         {
             PORTD |=  (1<<WHITE_LED);
-            led_state |= 0x04;  // bit 2 for WHITE
+            led_state |= 0x04; // bit 2 for WHITE
         }
         else
         {
             PORTD &= ~(1<<WHITE_LED);
         }
 
-        // Logique automatique seulement si pas en mode manuel
-        if (!manual_servo_mode)
+        // Red/Green LED Control (Traffic Light)
+        if (car_state)
         {
-            if (car_state)
-            {
-                PORTD |=  (1<<RED_LED);
-                PORTD &= ~(1<<GREEN_LED);
-                led_state |= 0x01;  // bit 0 for RED
-
-                servo_set_angle(180);
-                current_servo_angle = 180;
-                release_counter = 0;
-            }
-            else
-            {
-                if (release_counter < 40)
-                    release_counter++;
-                else
-                {
-                    PORTD |=  (1<<GREEN_LED);
-                    PORTD &= ~(1<<RED_LED);
-                    led_state |= 0x02;  // bit 1 for GREEN
-                    servo_set_angle(0);
-                    current_servo_angle = 0;
-                }
-            }
+            // Car detected -> RED (Stop/Occupied)
+            PORTD |=  (1<<RED_LED);
+            PORTD &= ~(1<<GREEN_LED);
+            led_state |= 0x01; // bit 0 for RED
         }
-        // En mode manuel, garder les LEDs selon l'état actuel du parking
         else
         {
-            if (car_state)
+            if (current_release_counter >= BARRIER_OPEN_DURATION)
             {
-                PORTD |=  (1<<RED_LED);
-                PORTD &= ~(1<<GREEN_LED);
-                led_state |= 0x01;
-            }
-            else if (release_counter >= 40)
-            {
+                // Car gone + Delay passed -> GREEN (Free)
                 PORTD |=  (1<<GREEN_LED);
                 PORTD &= ~(1<<RED_LED);
-                led_state |= 0x02;
+                led_state |= 0x02; // bit 1 for GREEN
             }
-            
-            // Gérer le compteur même en mode manuel
-            if (car_state)
-                release_counter = 0;
-            else if (release_counter < 40)
-                release_counter++;
+            // Else: maintain previous state (RED)
         }
 
-        current_release_counter = release_counter;
-
-        // Update I2C registers
-        soft_i2c_set_register(REG_LIGHT_STATE, dark);
-        soft_i2c_set_register(REG_SERVO_ANGLE, current_servo_angle);
+        // Update I2C
         soft_i2c_set_register(REG_LED_STATE, led_state);
-        soft_i2c_set_register(REG_RELEASE_COUNTER, release_counter);
-        soft_i2c_set_register(REG_SYSTEM_STATUS, 0x01);  // System OK
+        soft_i2c_set_register(REG_SYSTEM_STATUS, 0x01);
 
         vTaskDelay(pdMS_TO_TICKS(50));
     }
@@ -213,9 +247,12 @@ int main(void)
 
     lcdSem = xSemaphoreCreateBinary();
 
-    xTaskCreate(vAcqTask,     "ACQ",   150, NULL, 3, NULL);
-    xTaskCreate(vControlTask, "CTRL",  200, NULL, 2, NULL);
-    xTaskCreate(vLCDTask,     "LCD",   200, NULL, 1, NULL);
+    // Create Tasks
+    xTaskCreate(vIrTask,          "IR",    150, NULL, 3, NULL); // Detection priority
+    xTaskCreate(vServoTask,       "SERVO", 200, NULL, 2, NULL); // Logic priority
+    xTaskCreate(vLedTask,         "LED",   150, NULL, 2, NULL); // Visual priority
+    xTaskCreate(vLightSensorTask, "LIGHT", 100, NULL, 1, NULL); // Low priority
+    //xTaskCreate(vLCDTask,         "LCD",   200, NULL, 1, NULL); // Display priority
 
     vTaskStartScheduler();
 

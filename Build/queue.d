@@ -5,4 +5,4 @@ Build/queue.o: FreeRTOS-Kernel/queue.c FreeRTOS-Kernel/include/FreeRTOS.h \
  FreeRTOS-Kernel/portable/GCC/ATMega328/portmacro.h \
  FreeRTOS-Kernel/include/mpu_wrappers.h FreeRTOS-Kernel/include/task.h \
  FreeRTOS-Kernel/include/list.h FreeRTOS-Kernel/include/queue.h \
- FreeRTOS-Kernel/include/task.h FreeRTOS-Kernel/include/croutine.h
+ FreeRTOS-Kernel/include/task.h

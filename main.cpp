@@ -25,6 +25,7 @@
 #define REG_RELEASE_COUNTER 4
 #define REG_SYSTEM_STATUS   5
 #define REG_SERVO_COMMAND   6  // Commande manuelle du servo depuis le master
+#define REG_CHANGE_FLAG     7  // Flag indiquant qu'une donnée a changé (1=changé, 0=stable)
 
 #define BARRIER_OPEN_DURATION 100 // 100 * 50ms = 5000ms = 5 seconds
 
@@ -36,6 +37,9 @@ volatile uint8_t prev_car_state = 255;
 volatile uint16_t current_servo_angle = 0;
 volatile uint8_t current_release_counter = 0; // Shared with LED task
 volatile uint8_t is_dark_state = 0;           // Shared with LED task
+volatile uint8_t prev_light_state = 255;
+volatile uint8_t prev_servo_angle = 255;
+volatile uint8_t prev_led_state = 255;
 
 // ------------ INIT ------------
 static void leds_init(void)
@@ -54,6 +58,12 @@ static uint8_t is_dark(void)
     return !(PINC & (1<<LIGHT_PIN));
 }
 
+// Helper to mark data as changed
+static void mark_data_changed(void)
+{
+    soft_i2c_set_register(REG_CHANGE_FLAG, 1);
+}
+
 // ===================================================
 //                      TASKS
 // ===================================================
@@ -70,6 +80,7 @@ static void vIrTask(void *p)
         {
             prev_car_state = car_state;
             xSemaphoreGive(lcdSem);
+            mark_data_changed();  // Mark that data has changed
         }
 
         // Update I2C register
@@ -86,7 +97,14 @@ static void vLightSensorTask(void *p)
     for(;;)
     {
         is_dark_state = is_dark();
-        
+
+        // Check if changed
+        if (is_dark_state != prev_light_state)
+        {
+            prev_light_state = is_dark_state;
+            mark_data_changed();
+        }
+
         // Update I2C register
         soft_i2c_set_register(REG_LIGHT_STATE, is_dark_state);
 
@@ -110,15 +128,18 @@ static void vServoTask(void *p)
         if (servo_command == 255)
         {
             manual_servo_mode = false;
-            soft_i2c_set_register(REG_SERVO_COMMAND, 0xFF);
+            soft_i2c_set_register(REG_SERVO_COMMAND, 0);  // Clear command
         }
         // Valid Angle Command (0-180): Activate Manual Mode
-        else if (servo_command != 0xFF && servo_command <= 180)
+        else if (servo_command != 0 && servo_command <= 180)
         {
-            servo_set_angle(servo_command);
-            current_servo_angle = servo_command;
+            // Convertir les degrés (0-180) en unités servo (0-1620)
+            // 1 degré = 9 unités (180° * 9 = 1620)
+            uint16_t servo_units = servo_command * 9;
+            servo_set_angle(servo_units);
+            current_servo_angle = servo_units;
             manual_servo_mode = true;
-            soft_i2c_set_register(REG_SERVO_COMMAND, 0xFF);
+            soft_i2c_set_register(REG_SERVO_COMMAND, 0);  // Clear command
         }
 
         // 2. Manage Release Counter (System State Logic)
@@ -152,6 +173,13 @@ static void vServoTask(void *p)
                     current_servo_angle = 0;
                 }
             }
+        }
+
+        // Check if servo angle changed
+        if ((uint8_t)current_servo_angle != prev_servo_angle)
+        {
+            prev_servo_angle = (uint8_t)current_servo_angle;
+            mark_data_changed();
         }
 
         // Update I2C registers
@@ -198,7 +226,20 @@ static void vLedTask(void *p)
                 PORTD &= ~(1<<RED_LED);
                 led_state |= 0x02; // bit 1 for GREEN
             }
-            // Else: maintain previous state (RED)
+            else
+            {
+                // Car gone but still waiting -> maintain RED
+                PORTD |=  (1<<RED_LED);
+                PORTD &= ~(1<<GREEN_LED);
+                led_state |= 0x01; // bit 0 for RED
+            }
+        }
+
+        // Check if LED state changed
+        if (led_state != prev_led_state)
+        {
+            prev_led_state = led_state;
+            mark_data_changed();
         }
 
         // Update I2C
@@ -209,36 +250,16 @@ static void vLedTask(void *p)
     }
 }
 
-static void vLCDTask(void *p)
-{
-    lcd_init();
-    lcd_clear();
-    lcd_set_cursor(0,0);
-    lcd_print("Parking Ready");
-
-    for(;;)
-    {
-        xSemaphoreTake(lcdSem, portMAX_DELAY);
-
-        lcd_clear();
-        lcd_set_cursor(0,0);
-
-        if (car_state)
-            lcd_print("Car detected");
-        else
-            lcd_print("Free spot");
-    }
-}
-
 // ===================================================
 //                     MAIN
 // ===================================================
 int main(void)
 {
     soft_i2c_init(0x32);   // adresse I2C esclave
-    
-    // Initialiser le registre de commande servo à 0xFF (pas de commande)
-    soft_i2c_set_register(REG_SERVO_COMMAND, 0xFF);
+
+    // Initialiser les registres
+    soft_i2c_set_register(REG_SERVO_COMMAND, 0);  // Pas de commande (0 = inactif)
+    soft_i2c_set_register(REG_CHANGE_FLAG, 0);       // No changes yet
     
     leds_init();
     light_sensor_init();
@@ -248,12 +269,10 @@ int main(void)
     lcdSem = xSemaphoreCreateBinary();
 
     // Create Tasks
-    xTaskCreate(vIrTask,          "IR",    150, NULL, 3, NULL); // Detection priority
-    xTaskCreate(vServoTask,       "SERVO", 200, NULL, 2, NULL); // Logic priority
-    xTaskCreate(vLedTask,         "LED",   150, NULL, 2, NULL); // Visual priority
-    xTaskCreate(vLightSensorTask, "LIGHT", 100, NULL, 1, NULL); // Low priority
-    //xTaskCreate(vLCDTask,         "LCD",   200, NULL, 1, NULL); // Display priority
-
+    xTaskCreate(vIrTask,          "IR",   100, NULL, 3, NULL); // Detection priority
+    xTaskCreate(vServoTask,       "SERV", 130, NULL, 2, NULL); // Logic priority
+    xTaskCreate(vLedTask,         "LED",  100, NULL, 2, NULL); // Visual priority
+    xTaskCreate(vLightSensorTask, "LGT",  80,  NULL, 1, NULL); // Low priority
     vTaskStartScheduler();
 
     while(1);

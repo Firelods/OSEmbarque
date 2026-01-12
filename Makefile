@@ -43,9 +43,9 @@ all: $(BUILD_DIR)/$(PROGRAM).elf $(BUILD_DIR)/$(PROGRAM).hex
 $(BUILD_DIR)/$(PROGRAM).elf: Build/timers.o Build/tasks.o Build/queue.o Build/list.o Build/croutine.o \
 							Build/heap_1.o Build/port.o Build/Wire.o Build/twi.o Build/wiring_digital.o \
 Build/ir.o Build/servo.o Build/lcd_grove.o Build/soft_i2c.o Build/main.o
-
-	$(CPP) $(MMCU) -Wl,--gc-sections \
-	       $^ -o $@
+	$(CPP) $(MMCU) -Wl,--gc-sections $^ -o $@
+	@echo "---- RAM/FLASH usage ----"
+	@avr-size --format=avr --mcu=atmega328p $@
 
 # ------------------------
 #  compile .c files

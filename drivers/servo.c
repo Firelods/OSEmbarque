@@ -31,7 +31,7 @@ void servo_init(void)
 void servo_set_angle(uint16_t angle)
 {
     // Clamp au cas où
-    if (angle > 1080) angle = 1080;
+    // if (angle > 1080) angle = 1080;
 
     /*
      * On prend :

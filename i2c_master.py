@@ -11,7 +11,7 @@ import argparse
 
 # Configuration I2C
 SLAVE_ADDRESS = 0x32  # Adresse I2C de l'Arduino slave (0x32 par défaut)
-I2C_BUS = 0           # Bus I2C (1 pour Raspberry Pi)
+I2C_BUS = 1           # Bus I2C (1 pour Raspberry Pi)
 
 # Registres I2C (système de 16 registres)
 REG_CAR_STATE = 0      # État de détection de voiture (0 ou 1)
@@ -20,6 +20,8 @@ REG_SERVO_ANGLE = 2    # Angle actuel du servo (0-180)
 REG_LED_STATE = 3      # État des LEDs (bit0=RED, bit1=GREEN, bit2=WHITE)
 REG_RELEASE_COUNTER = 4  # Compteur de release (0-40)
 REG_SYSTEM_STATUS = 5  # Status général du système
+REG_SERVO_COMMAND = 6  # Commande manuelle servo
+REG_CHANGE_FLAG = 7    # Flag indiquant si données ont changé (1=changé, 0=stable)
 
 
 class ParkingMaster:
@@ -121,33 +123,56 @@ class ParkingMaster:
     def get_system_status(self):
         """
         Récupère le status général du système
-        
+
         Returns:
             0x01 si système OK, autre valeur sinon
         """
         return self.read_register(REG_SYSTEM_STATUS)
+
+    def check_data_changed(self):
+        """
+        Vérifie si des données ont changé depuis la dernière lecture
+
+        Returns:
+            True si des données ont changé, False sinon
+        """
+        flag = self.read_register(REG_CHANGE_FLAG)
+        if flag == 1:
+            # Reset the flag after reading
+            self.write_register(REG_CHANGE_FLAG, 0)
+            return True
+        return False
     
-    def get_all_status(self):
+    def get_all_status(self, force=False):
         """
         Récupère tous les états
-        
+
+        Args:
+            force: Si True, lit les données même si rien n'a changé
+
         Returns:
             Dict avec tous les états ou None en cas d'erreur
+            Si rien n'a changé et force=False, retourne un dict avec changed=False
         """
         try:
+            # Check if data has changed
+            if not force and not self.check_data_changed():
+                return {'changed': False}
+
             car_state = self.get_car_state()
             light_state = self.get_light_state()
             servo_angle = self.get_servo_angle()
             led_state = self.get_led_state()
             release_counter = self.get_release_counter()
-            
+
             if None in [car_state, light_state, servo_angle, led_state, release_counter]:
                 return None
-            
+
             # Type narrowing: we know these are not None now
             assert led_state is not None
-                
+
             return {
+                'changed': True,
                 'car_detected': bool(car_state),
                 'is_dark': bool(light_state),
                 'servo_angle': servo_angle,
@@ -187,7 +212,12 @@ def display_status(status):
     if status is None:
         print("❌ Impossible de récupérer le status")
         return
-    
+
+    # Check if data has changed
+    if not status.get('changed', True):
+        print("⏸️  Aucun changement détecté")
+        return
+
     print("\n" + "="*50)
     print("📊 STATUS DU SYSTÈME DE PARKING")
     print("="*50)
@@ -197,18 +227,28 @@ def display_status(status):
     print(f"💡 LED Rouge          : {'ON 🔴' if status['led_red'] else 'OFF'}")
     print(f"💡 LED Verte          : {'ON 🟢' if status['led_green'] else 'OFF'}")
     print(f"💡 LED Blanche        : {'ON ⚪' if status['led_white'] else 'OFF'}")
-    print(f"⏱️  Compteur release   : {status['release_counter']}/40")
+    print(f"⏱️  Compteur release   : {status['release_counter']}/100")
     print("="*50 + "\n")
 
 
-def monitor_mode(master, interval=1.0):
-    """Mode de monitoring continu"""
+def monitor_mode(master, interval=1.0, force=False):
+    """Mode de monitoring continu
+
+    Args:
+        master: Instance ParkingMaster
+        interval: Intervalle entre les lectures (secondes)
+        force: Si True, affiche toujours même si rien n'a changé
+    """
     print("🔄 Mode monitoring activé (Ctrl+C pour quitter)")
-    print(f"📡 Lecture toutes les {interval}s...\n")
-    
+    if force:
+        print(f"📡 Mode FORCE : Lecture toutes les {interval}s (même si pas de changement)")
+    else:
+        print(f"📡 Mode OPTIMISÉ : Affichage uniquement si changement détecté")
+    print()
+
     try:
         while True:
-            status = master.get_all_status()
+            status = master.get_all_status(force=force)
             display_status(status)
             time.sleep(interval)
     except KeyboardInterrupt:
@@ -221,6 +261,7 @@ def main():
     parser.add_argument('--addr', type=int, default=SLAVE_ADDRESS, help='Adresse I2C du slave (hex)')
     parser.add_argument('--monitor', action='store_true', help='Mode monitoring continu')
     parser.add_argument('--interval', type=float, default=1.0, help='Intervalle de monitoring (secondes)')
+    parser.add_argument('--force', action='store_true', help='Force la lecture même si pas de changement')
     parser.add_argument('--servo', type=int, help='Définir l\'angle du servo (0-180) ou 255 pour mode auto')
     parser.add_argument('--reset', action='store_true', help='Réinitialiser le système')
     
@@ -248,11 +289,11 @@ def main():
                 print("❌ Échec de l'envoi de la commande")
         
         elif args.monitor:
-            monitor_mode(master, args.interval)
-        
+            monitor_mode(master, args.interval, force=args.force)
+
         else:
-            # Lecture unique du status
-            status = master.get_all_status()
+            # Lecture unique du status (toujours en mode force)
+            status = master.get_all_status(force=True)
             display_status(status)
     
     finally:

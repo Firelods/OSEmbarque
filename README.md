@@ -15,6 +15,9 @@ Ce projet implémente un système de gestion de parking intelligent utilisant un
     *   **IMPORTANT**: Relier les masses (GND) de l'Arduino et de la Raspberry Pi ensemble.
     *   Relier SDA et SCL pour la communication I2C (avec adaptation de niveau 3.3V/5V si nécessaire).
 
+![Schéma de branchement](schema_branchement.png)
+
+
 ## Prérequis Logiciels
 
 Assurez-vous d'avoir les outils suivants installés sur votre système (Linux/Raspberry Pi OS) :

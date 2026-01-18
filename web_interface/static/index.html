@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parking System Control</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+
+    <div class="container">
+        <!-- Column 1: Sensors & Mode -->
+        <div class="column">
+            <div class="glass-card">
+                <h2>Sensors</h2>
+                <div class="sensor-list">
+                    <div class="sensor-item">
+                        <span class="label">Etat de la place</span>
+                        <span class="value" id="car-state">...</span>
+                    </div>
+                    <div class="sensor-item">
+                        <span class="label">Lumière</span>
+                        <span class="value" id="light-state">...</span>
+                    </div>
+                    <div class="sensor-item">
+                        <span class="label">Nombre de libération</span>
+                        <span class="value" id="release-counter">...</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-card">
+                <h2>Mode Manuelle/Automatique</h2>
+                <div class="control-mode-box">
+                    <div class="mode-info">
+                        <i class="fas fa-leaf"></i>
+                        <div class="text">
+                            <span class="mode-title">Automatique</span>
+                            <span class="mode-desc">Le système est en mode automatique</span>
+                        </div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="auto-mode-toggle" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+
+                <div class="led-box" id="led-green">
+                    <div class="led-icon"><i class="fas fa-lightbulb"></i></div>
+                    <span>Vert</span>
+                </div>
+                <div class="led-box" id="led-red">
+                    <div class="led-icon"><i class="fas fa-lightbulb"></i></div>
+                    <span>Rouge</span>
+                </div>
+                <div class="led-box" id="led-white">
+                    <div class="led-icon"><i class="fas fa-lightbulb"></i></div>
+                    <span>Blanc</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Column 2: Servo Control -->
+        <div class="column">
+            <!-- Servo Control Slider Removed -->
+
+            <div class="glass-card">
+                <h2>Quick actions</h2>
+                <div class="quick-action-grid">
+                    <button class="action-btn" onclick="setAngle(90)">
+                        <i class="fas fa-arrow-up"></i>
+                        <span>Fermer</span>
+                    </button>
+                    <button class="action-btn" onclick="setAngle(0)">
+                        <i class="fas fa-arrow-down"></i>
+                        <span>Ouvrir</span>
+                    </button>
+
+                </div>
+                <div style="margin-top: 1.5rem; text-align: center; color: var(--text-secondary); font-size: 0.9rem;">
+                    Angle: <span id="angle-display" style="font-weight: bold; color: var(--text-primary);">0</span>°
+                </div>
+            </div>
+        </div>
+
+        <!-- Column 3: Charts/Visuals -->
+        <div class="column">
+            <div class="glass-card">
+                <h2>Status du système</h2>
+                <div class="chart-box">
+                    <h3>Connection Status</h3>
+                    <div class="status-indicator" id="connection-status">
+                        <span class="dot"></span> Connecté
+                    </div>
+                </div>
+                <div class="chart-box">
+                    <h3>Visualisation du servo</h3>
+                    <div class="visualizer-container">
+                        <!-- Simple CSS Servo Arm -->
+                        <div class="servo-base">
+                            <div class="servo-arm" id="servo-arm"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+
+</html>
